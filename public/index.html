@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipTube AI - YouTube to Shorts Generator</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">🎬</div>
+            <h1>ClipTube AI</h1>
+            <p class="subtitle">YouTube ke kisi bhi long video ko YouTube Shorts mein convert karo — automatically!
+            </p>
+        </header>
+
+        <section class="input-section">
+            <label class="input-label">YouTube Video Link Paste Karo 👇</label>
+            <div class="input-group">
+                <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+                <button id="generateBtn">
+                    <span id="btnText">✂️ Generate Shorts</span>
+                    <div class="spinner" id="btnSpinner"></div>
+                </button>
+            </div>
+
+            <div class="clips-selector">
+                <label class="clips-label">Kitne Shorts Banana Hai? <span id="clipsValueDisplay">15</span></label>
+                <div class="clips-presets">
+                    <button class="preset-btn" data-val="5">5</button>
+                    <button class="preset-btn" data-val="10">10</button>
+                    <button class="preset-btn active" data-val="15">15</button>
+                    <button class="preset-btn" data-val="20">20</button>
+                    <button class="preset-btn" data-val="25">25</button>
+                </div>
+                <input type="range" id="clipsSlider" min="1" max="30" value="15" step="1">
+                <div class="clips-range-labels"><span>1</span><span>30</span></div>
+            </div>
+
+            <p class="hint">💡 Tip: Koi bhi public YouTube video link kaam karega</p>
+        </section>
+
+        <section class="status-section" id="statusSection">
+            <div class="status-card">
+                <div class="status-icon" id="statusIcon">⏳</div>
+                <h2 id="statusTitle">Processing...</h2>
+                <p id="statusMsg">Please wait...</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-label" id="progressText">0% Complete</p>
+            </div>
+        </section>
+
+        <section id="resultsSection" style="display:none;">
+            <h2 class="results-heading">🎉 Tumhare Shorts Ready Hain!</h2>
+            <p class="results-sub" id="resultsSubtitle"></p>
+            <div class="results-grid" id="resultsGrid"></div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

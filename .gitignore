@@ -1,0 +1,11 @@
+node_modules/
+temp/
+output/
+yt-dlp.exe
+*.mp4
+*.jpg
+*.png
+.env
+bin/
+1772*.js
+1772*.html
