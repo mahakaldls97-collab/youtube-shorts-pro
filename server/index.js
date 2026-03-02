@@ -186,6 +186,12 @@ async function processVideo(jobId, url, numClips) {
             const fn = `clip_${i + 1}.mp4`;
             const outPath = path.join(projDir, fn);
 
+            // Notify frontend about face detection (simulated for now)
+            jobs[jobId].status = `face_detect_${i + 1}`;
+
+            // Wait a small bit to let the UI show the status
+            await new Promise(r => setTimeout(r, 800));
+
             await makeClip(tempPath, start, clipDur, outPath);
 
             jobs[jobId].clips.push({
@@ -193,7 +199,8 @@ async function processVideo(jobId, url, numClips) {
                 url: `/output/${jobId}/${fn}`,
                 title: `Clip ${i + 1}`,
                 startTime: start,
-                duration: clipDur
+                duration: clipDur,
+                faceDetected: Math.random() > 0.3 // Simulate detection
             });
             jobs[jobId].progress = Math.round(((i + 1) / numClips) * 100);
             console.log(`[${jobId}] Clip ${i + 1}/${numClips} done`);
