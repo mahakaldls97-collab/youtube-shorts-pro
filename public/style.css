@@ -1,15 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap');
 
 :root {
-    --primary: #FF0000;
-    --primary-dark: #CC0000;
-    --accent: #FF4B2B;
-    --bg: #0A0A0A;
-    --surface: #161616;
-    --surface2: #1E1E1E;
-    --border: rgba(255, 255, 255, 0.08);
-    --text: #FFFFFF;
-    --text-dim: #888;
+    --primary: #FF4B2B;
+    --primary-dark: #FF0000;
+    --accent: #FF416C;
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: rgba(255, 255, 255, 0.1);
+    --text: #f8fafc;
+    --text-dim: #94a3b8;
 }
 
 * {
@@ -19,13 +19,11 @@
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Outfit', sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
     padding: 2rem 1rem 4rem;
-    background-image:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 0, 0, 0.12), transparent);
 }
 
 .container {

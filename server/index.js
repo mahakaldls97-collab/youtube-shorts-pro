@@ -2,8 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { execFile, spawn } = require('child_process');
-const { promisify } = require('util');
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -35,52 +34,50 @@ function generateId() {
 
 // ─── Find yt-dlp binary ───────────────────────────────────────────────────────
 function getYtDlpPath() {
-    // On Railway (Linux), yt-dlp is installed via nixpacks
-    if (process.platform !== 'win32') return 'yt-dlp';
-    // On Windows (local dev), use the bundled exe
+    if (process.platform !== 'win32') {
+        // Check for bundled linux binary or system command
+        const bundled = path.join(__dirname, '../yt-dlp-bin');
+        if (fs.existsSync(bundled)) return bundled;
+        return 'yt-dlp';
+    }
     const localExe = path.join(__dirname, '../yt-dlp.exe');
     if (fs.existsSync(localExe)) return localExe;
     return 'yt-dlp';
 }
 
-// ─── Find ffmpeg ──────────────────────────────────────────────────────────────
-function getFfmpegPath() {
-    if (process.platform === 'linux') return 'ffmpeg';
-    try { return require('ffmpeg-static'); } catch (e) { return 'ffmpeg'; }
+function getNodePath() { return process.execPath; }
+
+// yt-dlp bypass arguments to avoid "Sign in to confirm you're not a bot"
+function baseArgs() {
+    return [
+        '--no-check-certificates',
+        '--prefer-insecure',
+        '--js-runtimes', 'nodejs:' + getNodePath(),
+        '--extractor-args', 'youtube:player_client=mediaconnect',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ];
 }
 
-function getFfmpeg() {
-    const ffmpeg = require('fluent-ffmpeg');
-    ffmpeg.setFfmpegPath(getFfmpegPath());
-    return ffmpeg;
-}
-
-// ─── Test Route ───────────────────────────────────────────────────────────────
+// ─── API Routes ───────────────────────────────────────────────────────────────
 app.get('/api/test', (req, res) => {
-    const results = {
+    res.json({
         platform: process.platform,
         nodeVersion: process.version,
-        ytdlpPath: getYtDlpPath(),
-        ffmpegPath: getFfmpegPath(),
-        modules: {}
-    };
-    try { require('fluent-ffmpeg'); results.modules.fluent_ffmpeg = 'OK'; }
-    catch (e) { results.modules.fluent_ffmpeg = 'FAIL: ' + e.message; }
-    res.json(results);
+        ytdlpPath: getYtDlpPath()
+    });
 });
 
 // ─── Get video info using yt-dlp ──────────────────────────────────────────────
 function getVideoInfo(url) {
     return new Promise((resolve, reject) => {
-        const ytdlp = getYtDlpPath();
         const args = [
             '--dump-json',
             '--no-playlist',
             '--socket-timeout', '30',
+            ...baseArgs(),
             url
         ];
-        console.log('[info] Running yt-dlp --dump-json...');
-        const proc = spawn(ytdlp, args, { timeout: 60000 });
+        const proc = spawn(getYtDlpPath(), args, { timeout: 90000 });
         let stdout = '';
         let stderr = '';
         proc.stdout.on('data', d => stdout += d.toString());
@@ -88,14 +85,12 @@ function getVideoInfo(url) {
         proc.on('close', code => {
             if (code === 0 && stdout.trim()) {
                 try {
-                    const info = JSON.parse(stdout.trim());
-                    resolve(info);
+                    resolve(JSON.parse(stdout.trim()));
                 } catch (e) {
-                    reject(new Error('Failed to parse video info: ' + e.message));
+                    reject(new Error('Failed to parse video info'));
                 }
             } else {
-                console.error('[info error]', stderr.substring(0, 500));
-                reject(new Error('yt-dlp info failed: ' + (stderr.substring(0, 300) || 'Unknown error')));
+                reject(new Error('yt-dlp info failed: ' + (stderr.substring(0, 200) || 'Unknown error')));
             }
         });
         proc.on('error', e => reject(new Error('yt-dlp not found: ' + e.message)));
@@ -105,39 +100,64 @@ function getVideoInfo(url) {
 // ─── Download video using yt-dlp ─────────────────────────────────────────────
 function downloadVideo(url, outputPath) {
     return new Promise((resolve, reject) => {
-        const ytdlp = getYtDlpPath();
         const args = [
-            '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            '-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
             '--merge-output-format', 'mp4',
-            '--socket-timeout', '30',
-            '--retries', '3',
+            '--socket-timeout', '60',
             '--no-playlist',
+            ...baseArgs(),
             '-o', outputPath,
             url
         ];
-        console.log('[download] Starting yt-dlp download...');
-        const proc = spawn(ytdlp, args, { timeout: 600000 });
-        let stderr = '';
-        proc.stdout.on('data', d => process.stdout.write(d));
-        proc.stderr.on('data', d => {
-            stderr += d.toString();
-            process.stderr.write(d);
-        });
+        const proc = spawn(getYtDlpPath(), args, { timeout: 600000 });
         proc.on('close', code => {
             if (code === 0 && fs.existsSync(outputPath)) {
-                console.log('[download] Done!');
                 resolve();
             } else {
-                // yt-dlp sometimes outputs to .mkv - check for it
                 const mkvPath = outputPath.replace('.mp4', '.mkv');
                 if (fs.existsSync(mkvPath)) {
-                    resolve(); // will use ffmpeg to convert
+                    fs.renameSync(mkvPath, outputPath);
+                    resolve();
                 } else {
-                    reject(new Error('Download failed (code ' + code + '): ' + stderr.substring(0, 400)));
+                    reject(new Error('Download failed'));
                 }
             }
         });
-        proc.on('error', e => reject(new Error('yt-dlp spawn error: ' + e.message)));
+        proc.on('error', e => reject(new Error('Spawn fail: ' + e.message)));
+    });
+}
+
+// ─── FFmpeg Processing ────────────────────────────────────────────────────────
+function makeClip(inputPath, startTime, duration, outputPath) {
+    return new Promise((resolve, reject) => {
+        const args = [
+            '-nostdin',
+            '-y',
+            '-ss', String(startTime),
+            '-i', inputPath,
+            '-t', String(duration),
+            // Improved 9:16 crop filter (Full screen without black bars)
+            '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1',
+            '-c:v', 'libx264',
+            '-profile:v', 'high',
+            '-level', '4.1',
+            '-preset', 'ultrafast',
+            '-crf', '18',
+            '-b:v', '4000k',
+            '-maxrate', '5000k',
+            '-bufsize', '8000k',
+            '-c:a', 'aac',
+            '-b:a', '160k',
+            '-threads', '1',
+            '-movflags', '+faststart',
+            '-pix_fmt', 'yuv420p',
+            outputPath
+        ];
+        const proc = spawn('ffmpeg', args, { timeout: 300000 });
+        proc.on('close', code => {
+            if (code === 0) resolve();
+            else reject(new Error('FFmpeg clip failed'));
+        });
     });
 }
 
@@ -145,91 +165,42 @@ function downloadVideo(url, outputPath) {
 async function processVideo(jobId, url, numClips) {
     try {
         jobs[jobId].status = 'fetching_info';
-        console.log('[' + jobId + '] Getting video info...');
-
         const info = await getVideoInfo(url);
         const duration = parseInt(info.duration || info.lengthSeconds || 0);
-        jobs[jobId].title = info.title || 'Unknown Title';
+        jobs[jobId].title = info.title || 'Unknown Video';
 
-        console.log('[' + jobId + '] Title:', jobs[jobId].title, '| Duration:', duration + 's');
+        if (duration < 30) throw new Error('Video too short (must be > 30s)');
 
-        if (duration < 60) throw new Error('Video must be at least 1 minute long.');
-
-        // Download
-        const tempPath = path.join(tempDir, jobId + '_merged.mp4');
+        const tempPath = path.join(tempDir, jobId + '.mp4');
         jobs[jobId].status = 'downloading';
         await downloadVideo(url, tempPath);
 
-        // If mp4 not found, check mkv
-        let actualTempPath = tempPath;
-        if (!fs.existsSync(tempPath)) {
-            const mkvPath = tempPath.replace('.mp4', '.mkv');
-            if (fs.existsSync(mkvPath)) actualTempPath = mkvPath;
-            else throw new Error('Downloaded file not found after yt-dlp.');
-        }
-
-        console.log('[' + jobId + '] Downloaded to:', actualTempPath);
-
-        // Calculate clip timings
-        const interval = Math.floor(duration / numClips);
-        const clipDuration = Math.max(20, Math.min(60, interval));
-        const projectDir = path.join(outputDir, jobId);
-        if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true });
-
         jobs[jobId].status = 'segmenting';
-        const ffmpegLib = getFfmpeg();
+        const interval = Math.floor(duration / numClips);
+        const clipDur = Math.max(15, Math.min(59, interval));
+        const projDir = path.join(outputDir, jobId);
+        if (!fs.existsSync(projDir)) fs.mkdirSync(projDir, { recursive: true });
 
         for (let i = 0; i < numClips; i++) {
-            const startTime = i * interval;
-            const fileName = 'clip_' + (i + 1) + '.mp4';
-            const outPath = path.join(projectDir, fileName);
+            const start = i * interval;
+            const fn = `clip_${i + 1}.mp4`;
+            const outPath = path.join(projDir, fn);
 
-            await new Promise((resolve, reject) => {
-                ffmpegLib(actualTempPath)
-                    .setStartTime(startTime)
-                    .setDuration(clipDuration)
-                    .videoFilters([
-                        'crop=ih*9/16:ih:(iw-ih*9/16)/2:0',
-                        'scale=1080:1920'
-                    ])
-                    .videoCodec('libx264')
-                    .audioCodec('aac')
-                    .audioBitrate('128k')
-                    .outputOptions([
-                        '-preset fast',
-                        '-crf 23',
-                        '-movflags +faststart',
-                        '-pix_fmt yuv420p'
-                    ])
-                    .output(outPath)
-                    .on('end', () => {
-                        jobs[jobId].clips.push({
-                            id: i,
-                            url: '/output/' + jobId + '/' + fileName,
-                            title: 'Clip ' + (i + 1),
-                            startTime,
-                            duration: clipDuration
-                        });
-                        jobs[jobId].progress = Math.round(((i + 1) / numClips) * 100);
-                        console.log('[' + jobId + '] Clip ' + (i + 1) + '/' + numClips + ' done');
-                        resolve();
-                    })
-                    .on('error', (err) => {
-                        console.error('[ffmpeg error] Clip ' + (i + 1) + ':', err.message);
-                        reject(new Error('FFmpeg error on clip ' + (i + 1) + ': ' + err.message));
-                    })
-                    .run();
+            await makeClip(tempPath, start, clipDur, outPath);
+
+            jobs[jobId].clips.push({
+                id: i,
+                url: `/output/${jobId}/${fn}`,
+                title: `Clip ${i + 1}`,
+                startTime: start,
+                duration: clipDur
             });
+            jobs[jobId].progress = Math.round(((i + 1) / numClips) * 100);
+            console.log(`[${jobId}] Clip ${i + 1}/${numClips} done`);
         }
 
         jobs[jobId].status = 'completed';
-
-        // Cleanup temp file
-        try {
-            if (fs.existsSync(actualTempPath)) fs.unlinkSync(actualTempPath);
-        } catch (e) { console.warn('Cleanup error:', e.message); }
-
-        console.log('[' + jobId + '] All ' + numClips + ' clips done!');
+        try { fs.unlinkSync(tempPath); } catch (e) { }
 
     } catch (error) {
         console.error('[FAILED] Job ' + jobId + ':', error.message);
@@ -238,24 +209,16 @@ async function processVideo(jobId, url, numClips) {
     }
 }
 
-// ─── API Routes ───────────────────────────────────────────────────────────────
 app.post('/api/process', async (req, res) => {
     const { url, numClips } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
-    // Basic YouTube URL check
-    const youtubePattern = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/).+/;
-    if (!youtubePattern.test(url)) {
-        return res.status(400).json({ error: 'Invalid YouTube URL. Use format: https://youtube.com/watch?v=...' });
-    }
-
-    const clipsCount = Math.min(30, Math.max(1, parseInt(numClips) || 15));
+    const count = Math.min(30, Math.max(1, parseInt(numClips) || 15));
     const jobId = generateId();
-    jobs[jobId] = { status: 'starting', progress: 0, clips: [], title: 'Loading...', totalClips: clipsCount };
+    jobs[jobId] = { status: 'starting', progress: 0, clips: [], title: 'Loading...', totalClips: count };
     res.json({ jobId });
 
-    // Run async (don't await)
-    processVideo(jobId, url, clipsCount);
+    processVideo(jobId, url, count);
 });
 
 app.get('/api/status/:jobId', (req, res) => {
@@ -264,10 +227,6 @@ app.get('/api/status/:jobId', (req, res) => {
     res.json(job);
 });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(PORT, HOST, () => {
-    console.log('ClipTube AI running on http://' + HOST + ':' + PORT);
-    console.log('Platform: ' + process.platform + ' | Node: ' + process.version);
-    console.log('yt-dlp path: ' + getYtDlpPath());
-    console.log('ffmpeg path: ' + getFfmpegPath());
+    console.log('ClipTube AI on http://' + HOST + ':' + PORT);
 });
